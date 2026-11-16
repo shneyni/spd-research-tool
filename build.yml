@@ -1,0 +1,76 @@
+name: build-single-exe
+on:
+  push: { branches: [main], tags: ['v*'] }
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  VERSION: R23.19.3301-he1          # bump to force re-extraction on users' machines
+  DIALOG_FONT: "9,Segoe UI"         # "pt,face" ; use "8,Segoe UI" if dialogs look too big ; empty = keep original font
+  INCLUDE_SAMPLE_IMAGES: "false"    # ImageFiles/ holds a sample UMS9117 firmware (~30MB)
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - run: pip install pefile
+
+      - name: Extract vendor archives
+        shell: pwsh
+        run: |
+          $z = "C:\Program Files\7-Zip\7z.exe"
+          & $z x vendor\spd_research_tool_r23_19_3301.7z -obuild\tool -y | Out-Null
+          & $z x vendor\spd_driver_r4_20_0201.7z -obuild\drv -y | Out-Null
+          $tool = (Get-ChildItem build\tool -Recurse -Filter ResearchDownload.exe | Select-Object -First 1).DirectoryName
+          $drv  = (Get-ChildItem build\drv -Recurse -Filter sprdvcom.inf | Where-Object { $_.FullName -match 'Win10' } | Select-Object -First 1).DirectoryName
+          "TOOL=$tool" >> $env:GITHUB_ENV
+          "DRV=$drv"   >> $env:GITHUB_ENV
+
+      - name: Self-test resource round trip (must be byte exact)
+        run: python tools/rsrc_extract.py "$env:TOOL" build\en.json --selftest
+        shell: pwsh
+
+      - name: Translate (resources, INI) + Win11 look
+        shell: pwsh
+        run: |
+          $fontArgs = @(); if ($env:DIALOG_FONT) { $fontArgs = @('--font', $env:DIALOG_FONT) }
+          python tools/apply_resources.py "$env:TOOL" @fontArgs
+          if ($LASTEXITCODE) { throw "apply_resources failed" }
+          python tools/apply_ini.py "$env:TOOL"
+          Get-ChildItem "$env:TOOL" -Recurse -Include *.url | Remove-Item -Force
+          Remove-Item "$env:TOOL\Driver" -Recurse -Force -ErrorAction SilentlyContinue
+          if ($env:INCLUDE_SAMPLE_IMAGES -ne 'true') { Remove-Item "$env:TOOL\ImageFiles" -Recurse -Force -ErrorAction SilentlyContinue }
+
+      - name: Verify Hebrew is really inside the patched binaries
+        shell: pwsh
+        run: |
+          python tools/rsrc_extract.py "$env:TOOL" build\after.json
+          python -c "import json,re;d=json.load(open('build/after.json',encoding='utf-8'));h=sum(1 for e in d.values() for s in e['strings'].values() if re.search('[\u0590-\u05ff]',s));print('Hebrew strings:',h);assert h>150"
+
+      - name: Build payload + single EXE
+        shell: pwsh
+        run: |
+          python tools/make_payload.py "$env:TOOL" "$env:DRV" build\payload.zip
+          New-Item dist -ItemType Directory -Force | Out-Null
+          (Get-Content launcher\Program.cs -Raw) -replace '__VERSION__', $env:VERSION | Set-Content build\Program.cs -Encoding UTF8
+          $csc = "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
+          & $csc /nologo /codepage:65001 /target:winexe /platform:x64 /optimize+ `
+            /out:dist\SPD_Research_Tool_HE.exe /win32manifest:launcher\launcher.manifest `
+            /resource:build\payload.zip,payload.zip `
+            /reference:System.Windows.Forms.dll /reference:System.IO.Compression.dll /reference:System.IO.Compression.FileSystem.dll `
+            build\Program.cs
+          if ($LASTEXITCODE) { throw "csc failed" }
+          Get-Item dist\SPD_Research_Tool_HE.exe | Select-Object Name, Length
+
+      - uses: actions/upload-artifact@v4
+        with: { name: SPD_Research_Tool_HE, path: dist/SPD_Research_Tool_HE.exe }
+
+      - name: Release (tags only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with: { files: dist/SPD_Research_Tool_HE.exe }
