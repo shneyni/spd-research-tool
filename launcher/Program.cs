@@ -24,12 +24,13 @@ static class Program
 
             string root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), AppName, Version);
             string appDir = Path.Combine(root, "app");
-            if (!File.Exists(Path.Combine(root, ".ok")))
+            string exe = Path.Combine(appDir, "ResearchDownload.exe");
+            if (!File.Exists(exe) || !File.Exists(Path.Combine(root, ".ok")))
             {
                 string tmp = root + ".tmp";
                 if (Directory.Exists(tmp)) Directory.Delete(tmp, true);
                 if (Directory.Exists(root)) Directory.Delete(root, true);
-                ExtractPayload(tmp, "app/");
+                ExtractPayload(Path.Combine(tmp, "app"), "app/");
                 Directory.Move(tmp, root);
                 File.WriteAllText(Path.Combine(root, ".ok"), Version);
             }
@@ -52,7 +53,8 @@ static class Program
                 catch (System.ComponentModel.Win32Exception) { /* UAC declined */ }
             }
 
-            var start = new ProcessStartInfo(Path.Combine(appDir, "ResearchDownload.exe"));
+            if (!File.Exists(exe)) throw new FileNotFoundException("הקובץ לא נמצא אחרי החילוץ: " + exe);
+            var start = new ProcessStartInfo(exe);
             start.WorkingDirectory = appDir;
             Process.Start(start);
             return 0;
