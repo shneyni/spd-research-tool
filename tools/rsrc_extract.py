@@ -25,7 +25,8 @@ def pick(pe):
 def main(src, out, selftest=False):
     result, bad = {}, 0
     for f in sorted(glob.glob(os.path.join(src, '*.exe')) + glob.glob(os.path.join(src, '*.dll'))):
-        pe = pefile.PE(f, fast_load=True)
+        with open(f, 'rb') as fh: blob = fh.read()
+        pe = pefile.PE(data=blob, fast_load=True)
         pe.parse_data_directories([pefile.DIRECTORY_ENTRY['IMAGE_DIRECTORY_ENTRY_RESOURCE']])
         if not hasattr(pe, 'DIRECTORY_ENTRY_RESOURCE'): continue
         e = {'strings': {}, 'menus': {}, 'dialogs': {}, 'src_lang': {}}

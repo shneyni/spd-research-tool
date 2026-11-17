@@ -6,6 +6,7 @@ Reads the full resource tree, applies the replacements, serialises a brand new r
 section appended to the file and points the resource data-directory at it. The old .rsrc stays as dead
 data (harmless). Everything outside the resource directory is untouched. The Authenticode signature (if any)
 is dropped because it would be invalid after any modification anyway."""
+import os
 import struct
 import pefile
 
@@ -142,4 +143,11 @@ def rewrite_resources(path, repl, out_path=None):
     struct.pack_into('<I', raw, opt + 64, 0)                                       # CheckSum
     struct.pack_into('<II', raw, ddir + 2 * 8, new_va, len(blob))                  # resource directory
     struct.pack_into('<II', raw, ddir + 4 * 8, 0, 0)                               # drop signature
-    open(out_path or path, 'wb').write(raw)
+    target = out_path or path
+    tmp = target + '.new'
+    with open(tmp, 'wb') as fh:
+        fh.write(raw)
+    if os.name == 'nt':
+        import ctypes
+        ctypes.windll.kernel32.SetFileAttributesW(target, 0x80)   # FILE_ATTRIBUTE_NORMAL
+    os.replace(tmp, target)

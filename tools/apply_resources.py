@@ -32,7 +32,8 @@ def lookup(text, alt_text=None):
     return None
 
 def load_pe(path):
-    pe = pefile.PE(path, fast_load=True)
+    with open(path, 'rb') as fh: blob = fh.read()
+    pe = pefile.PE(data=blob, fast_load=True)
     pe.parse_data_directories([pefile.DIRECTORY_ENTRY['IMAGE_DIRECTORY_ENTRY_RESOURCE']])
     return pe
 

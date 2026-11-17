@@ -16,8 +16,8 @@ def main(src, font=None):
         if not ops: continue
         out = os.path.join(tmp, os.path.basename(f)); shutil.copy(f, out)
         rewrite_resources(out, {(t, i, l): d for t, i, l, d in ops})
-        pe0 = pefile.PE(f, fast_load=True); pe0.parse_data_directories([2]); t0 = read_tree(pe0)
-        pe1 = pefile.PE(out, fast_load=True); pe1.parse_data_directories([2]); t1 = read_tree(pe1)
+        pe0 = pefile.PE(data=open(f, 'rb').read(), fast_load=True); pe0.parse_data_directories([2]); t0 = read_tree(pe0)
+        pe1 = pefile.PE(data=open(out, 'rb').read(), fast_load=True); pe1.parse_data_directories([2]); t1 = read_tree(pe1)
         want = {(t, i, l): d for t, i, l, d in ops}
         for t, nm in t0.items():
             for n, ls in nm.items():
@@ -31,7 +31,7 @@ def main(src, font=None):
         for k, d in want.items():
             if d is not None and t1.get(k[0], {}).get(k[1], {}).get(k[2], (None,))[0] != d: print('MISSING', f, k); fails += 1
         # header sanity
-        raw = open(out, 'rb').read(); pe = pefile.PE(out)
+        raw = open(out, 'rb').read(); pe = pefile.PE(data=raw)
         last = pe.sections[-1]
         assert last.Name.rstrip(b'\0') == b'.rsrcn'
         assert pe.OPTIONAL_HEADER.SizeOfImage % pe.OPTIONAL_HEADER.SectionAlignment == 0
