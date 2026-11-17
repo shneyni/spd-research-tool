@@ -7,7 +7,7 @@ permissions:
   contents: write
 
 env:
-  VERSION: R23.19.3301-he1          # bump to force re-extraction on users' machines
+  VERSION: R23.19.3301-he2          # bump to force re-extraction on users' machines
   DIALOG_FONT: "9,Segoe UI"         # "pt,face" ; use "8,Segoe UI" if dialogs look too big ; empty = keep original font
   INCLUDE_SAMPLE_IMAGES: "false"    # ImageFiles/ holds a sample UMS9117 firmware (~30MB)
 
@@ -31,8 +31,12 @@ jobs:
           "TOOL=$tool" >> $env:GITHUB_ENV
           "DRV=$drv"   >> $env:GITHUB_ENV
 
-      - name: Self-test resource round trip (must be byte exact)
-        run: python tools/rsrc_extract.py "$env:TOOL" build\en.json --selftest
+      - name: Self-tests (resource round trip + PE rewrite must be exact)
+        run: |
+          python tools/rsrc_extract.py "$env:TOOL" build\en.json --selftest
+          if ($LASTEXITCODE) { throw "round trip failed" }
+          python tools/selftest_pe.py "$env:TOOL" "$env:DIALOG_FONT"
+          if ($LASTEXITCODE) { throw "PE rewrite self-test failed" }
         shell: pwsh
 
       - name: Translate (resources, INI) + Win11 look
