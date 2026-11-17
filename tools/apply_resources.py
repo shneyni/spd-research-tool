@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Translate resources of every PE in <dir> using translations/he_glossary.py.
   --dry-run : (any OS) build + re-parse + coverage report, writes nothing
-  default   : (Windows only) write via UpdateResource (lang 1033 = Hebrew text, 2052 copies removed)
+  default   : rewrite PE resources in place with pure Python (lang 1033 = Hebrew text, 2052 copies removed)
 Layout (geometry/styles/IDs) is never changed -> button positions stay identical."""
-import sys, os, glob, re, ctypes, json
+import sys, os, glob, re, json
 import pefile
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'translations'))
 from rsrc_lib import *
@@ -104,20 +104,9 @@ def id_text_map(src):
         if t == RT_STRING: m.update(parse_strings(i, d))
     return m
 
-def apply_windows(path, ops):
-    k = ctypes.windll.kernel32
-    k.BeginUpdateResourceW.restype = ctypes.c_void_p
-    k.UpdateResourceW.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_ushort, ctypes.c_void_p, ctypes.c_ulong]
-    k.EndUpdateResourceW.argtypes = [ctypes.c_void_p, ctypes.c_int]
-    h = k.BeginUpdateResourceW(path, False)
-    if not h: raise OSError(f'BeginUpdateResource failed: {path} ({ctypes.GetLastError()})')
-    for t, i, lang, data in ops:
-        if data is None: ok = k.UpdateResourceW(h, t, i, lang, None, 0)
-        else:
-            buf = ctypes.create_string_buffer(data, len(data))
-            ok = k.UpdateResourceW(h, t, i, lang, buf, len(data))
-        if not ok: raise OSError(f'UpdateResource failed {path} {t}/{i}/{lang}')
-    if not k.EndUpdateResourceW(h, False): raise OSError(f'EndUpdateResource failed {path}')
+def apply_pe(path, ops):
+    from rsrc_pe import rewrite_resources
+    rewrite_resources(path, {(t, i, l): d for t, i, l, d in ops})
 
 def main(src, dry):
     global FONT
@@ -128,7 +117,7 @@ def main(src, dry):
         ops = build_ops(f, idt, report)
         n = sum(1 for o in ops if o[3] is not None); total += n
         print(f'{os.path.basename(f)}: {n} resources translated')
-        if ops and not dry: apply_windows(f, ops)
+        if ops and not dry: apply_pe(f, ops)
     print('TOTAL translated resources:', total)
     left = sorted(set((a, c) for a, b, c in report))
     print('Left untranslated (review):', len(left))
